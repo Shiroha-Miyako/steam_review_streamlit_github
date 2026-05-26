@@ -17,8 +17,8 @@ from transformers import pipeline
 # Example:
 # SENTIMENT_MODEL_ID = "yourname/steam-sentiment-distilbert"
 # ISSUE_MODEL_ID = "yourname/steam-issue-distilbert"
-SENTIMENT_MODEL_ID = "YOUR_USERNAME/steam-sentiment-distilbert"
-ISSUE_MODEL_ID = "YOUR_USERNAME/steam-issue-distilbert"
+SENTIMENT_MODEL_ID = "ShirohaNaruse/steam-sentiment-distilbert"
+ISSUE_MODEL_ID = "ShirohaNaruse/steam-issue-distilbert"
 
 APP_TITLE = "Steam Review Intelligence Assistant"
 
