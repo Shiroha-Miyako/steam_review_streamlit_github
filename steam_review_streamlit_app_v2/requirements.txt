@@ -1,8 +1,0 @@
-streamlit
-transformers<5.0.0
-torch
-pandas
-numpy
-scikit-learn
-plotly
-requests
