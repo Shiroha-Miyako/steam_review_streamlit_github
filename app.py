@@ -410,36 +410,6 @@ def fetch_steam_reviews_by_app_id(app_id: str, max_reviews: int = 100, language:
     return pd.DataFrame(reviews).head(max_reviews)
 
 
-# =========================
-# Streamlit UI
-# =========================
-st.set_page_config(
-    page_title=APP_TITLE,
-    page_icon="🎮",
-    layout="wide",
-)
-
-st.title("🎮 Steam Review Intelligence Assistant")
-st.caption(
-    "A developer-oriented review triage tool using two fine-tuned Hugging Face pipelines: "
-    "sentiment classification and issue category classification."
-)
-
-with st.sidebar:
-    st.header("Model Settings")
-    st.write("Sentiment model:")
-    st.code(SENTIMENT_MODEL_ID)
-    st.write("Issue category model:")
-    st.code(ISSUE_MODEL_ID)
-    st.warning(
-        "Before deployment, replace YOUR_USERNAME with your real Hugging Face username in app.py."
-    )
-    st.markdown("---")
-    st.info(
-        "Issue category predictions are based on a model trained from keyword-based weak labels. "
-        "Use the outputs as triage insights, not perfect human annotations."
-    )
-
 try:
     sentiment_pipe, issue_pipe = load_models()
 except Exception as exc:
