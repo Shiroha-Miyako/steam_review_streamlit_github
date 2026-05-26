@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
-from transformers import pipeline
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
 
 # =========================
@@ -86,16 +86,31 @@ PRIORITY_ORDER = ["High", "Medium", "Marketing Insight", "Low"]
 # =========================
 @st.cache_resource(show_spinner=True)
 def load_models():
-    """Load two Hugging Face text-classification pipelines."""
+    """Load two Hugging Face text-classification pipelines.
+
+    DistilBERT does not use token_type_ids. Some uploaded tokenizer configs may still
+    produce token_type_ids on Streamlit Cloud, so we explicitly restrict tokenizer
+    inputs to input_ids and attention_mask before creating the pipelines.
+    """
+    sentiment_tokenizer = AutoTokenizer.from_pretrained(SENTIMENT_MODEL_ID)
+    sentiment_tokenizer.model_input_names = ["input_ids", "attention_mask"]
+    sentiment_model = AutoModelForSequenceClassification.from_pretrained(SENTIMENT_MODEL_ID)
+
+    issue_tokenizer = AutoTokenizer.from_pretrained(ISSUE_MODEL_ID)
+    issue_tokenizer.model_input_names = ["input_ids", "attention_mask"]
+    issue_model = AutoModelForSequenceClassification.from_pretrained(ISSUE_MODEL_ID)
+
     sentiment_pipe = pipeline(
         "text-classification",
-        model=SENTIMENT_MODEL_ID,
+        model=sentiment_model,
+        tokenizer=sentiment_tokenizer,
         truncation=True,
         max_length=256,
     )
     issue_pipe = pipeline(
         "text-classification",
-        model=ISSUE_MODEL_ID,
+        model=issue_model,
+        tokenizer=issue_tokenizer,
         truncation=True,
         max_length=256,
     )
@@ -410,6 +425,20 @@ st.caption(
     "sentiment classification and issue category classification."
 )
 
+with st.sidebar:
+    st.header("Model Settings")
+    st.write("Sentiment model:")
+    st.code(SENTIMENT_MODEL_ID)
+    st.write("Issue category model:")
+    st.code(ISSUE_MODEL_ID)
+    st.warning(
+        "Before deployment, replace YOUR_USERNAME with your real Hugging Face username in app.py."
+    )
+    st.markdown("---")
+    st.info(
+        "Issue category predictions are based on a model trained from keyword-based weak labels. "
+        "Use the outputs as triage insights, not perfect human annotations."
+    )
 
 try:
     sentiment_pipe, issue_pipe = load_models()
@@ -496,7 +525,7 @@ with tab_steam:
                 result_df = pd.concat([result_df, fetched_df[meta_cols].reset_index(drop=True)], axis=1)
                 render_analysis_results(result_df)
         except Exception as exc:
-            st.error("Failed to fetch Steam reviews. Please check the App ID or use CSV upload.")
+            st.error("Failed to fetch or analyze Steam reviews. Please check the App ID, try a smaller number of reviews, or use CSV upload.")
             st.exception(exc)
 
 with tab_about:
