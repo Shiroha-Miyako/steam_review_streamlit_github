@@ -38,24 +38,3 @@ The App ID is:
 
 `1086940`
 
-## Setup
-
-Before deploying, edit `app.py` and replace:
-
-```python
-SENTIMENT_MODEL_ID = "YOUR_USERNAME/steam-sentiment-distilbert"
-ISSUE_MODEL_ID = "YOUR_USERNAME/steam-issue-distilbert"
-```
-
-with your real Hugging Face model repo IDs.
-
-## Streamlit Cloud
-
-Deploy with:
-
-- main file: `app.py`
-- dependencies: `requirements.txt`
-
-## Model note
-
-The issue classifier was trained on keyword-based weak labels, so it should be interpreted as a developer-oriented triage tool rather than a perfect human-labeled classifier.
