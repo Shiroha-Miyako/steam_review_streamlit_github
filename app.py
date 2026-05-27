@@ -21,6 +21,7 @@ SENTIMENT_MODEL_ID = "ShirohaNaruse/steam-sentiment-distilbert"
 ISSUE_MODEL_ID = "ShirohaNaruse/steam-issue-distilbert"
 
 APP_TITLE = "Steam Review Intelligence Assistant"
+FETCH_MAX_REVIEWS = 1000  # Keep this moderate for Streamlit Cloud stability.
 
 ISSUE_LABEL_MAP = {
     "LABEL_0": "Bug / Crash",
@@ -354,7 +355,7 @@ def fetch_steam_reviews_by_app_id(app_id: str, max_reviews: int = 100, language:
         raise ValueError("Steam App ID must be a numeric ID, such as 1086940.")
 
     max_reviews = int(max_reviews)
-    max_reviews = max(1, min(max_reviews, 200))
+    max_reviews = max(1, min(max_reviews, FETCH_MAX_REVIEWS))
 
     base_url = f"https://store.steampowered.com/appreviews/{app_id}"
     reviews = []
@@ -408,6 +409,22 @@ def fetch_steam_reviews_by_app_id(app_id: str, max_reviews: int = 100, language:
         time.sleep(0.25)
 
     return pd.DataFrame(reviews).head(max_reviews)
+
+
+# =========================
+# Streamlit UI
+# =========================
+st.set_page_config(
+    page_title=APP_TITLE,
+    page_icon="🎮",
+    layout="wide",
+)
+
+st.title("🎮 Steam Review Intelligence Assistant")
+st.caption(
+    "A developer-oriented review triage tool using two fine-tuned Hugging Face pipelines: "
+    "sentiment classification and issue category classification."
+)
 
 
 try:
@@ -474,11 +491,13 @@ with tab_steam:
     )
     st.info(
         "This feature uses Steam's public review endpoint and may fail if Steam is unavailable or rate-limited. "
-        "For the most stable classroom demo, use CSV upload."
+        "For the most stable classroom demo, use CSV upload or fetch 100–200 reviews. Larger runs may take longer."
     )
 
     app_id = st.text_input("Steam App ID", value="1086940")
-    review_count = st.selectbox("Number of recent English reviews to fetch", [20, 50, 100, 200], index=1)
+    review_count = st.selectbox("Number of recent English reviews to fetch", [20, 50, 100, 200, 500, 1000], index=2)
+    if review_count >= 500:
+        st.warning("Large fetches analyze more reviews but may take longer on Streamlit Cloud. For live demos, 100–200 is safer.")
 
     if st.button("Fetch and Analyze Steam Reviews", type="primary"):
         try:
@@ -519,6 +538,9 @@ This app helps indie game developers analyze Steam player reviews by turning uns
 
 ### Important limitation
 The issue category labels were generated through keyword-based weak labeling. Therefore, the issue model should be interpreted as a developer-oriented triage tool rather than a perfect human-labeled classifier.
+
+### About larger review analysis
+The Steam App ID feature can fetch and analyze up to **1,000 recent English reviews**. This means the app can analyze a larger batch at inference time. The deployed app does not retrain the models online; true model learning would require collecting new labeled data and fine-tuning the models again.
 
 ### Business value
 The app supports:
