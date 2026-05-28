@@ -26,7 +26,9 @@ ISSUE_LABEL_MAP = {
     "LABEL_4": "Gameplay",
     "LABEL_5": "Content",
     "LABEL_6": "Price / Value",
-    "LABEL_7": "Emotional Expression",
+    "LABEL_7": "Marketing Signal",
+    "LABEL_8": "Emotional Expression",
+
     0: "Bug / Crash",
     1: "Account / Access",
     2: "Multiplayer / Server",
@@ -34,7 +36,9 @@ ISSUE_LABEL_MAP = {
     4: "Gameplay",
     5: "Content",
     6: "Price / Value",
-    7: "Emotional Expression",
+    7: "Marketing Signal",
+    8: "Emotional Expression",
+
     "0": "Bug / Crash",
     "1": "Account / Access",
     "2": "Multiplayer / Server",
@@ -42,7 +46,9 @@ ISSUE_LABEL_MAP = {
     "4": "Gameplay",
     "5": "Content",
     "6": "Price / Value",
-    "7": "Emotional Expression",
+    "7": "Marketing Signal",
+    "8": "Emotional Expression",
+
     "Bug / Crash": "Bug / Crash",
     "Account / Access": "Account / Access",
     "Multiplayer / Server": "Multiplayer / Server",
@@ -50,6 +56,7 @@ ISSUE_LABEL_MAP = {
     "Gameplay": "Gameplay",
     "Content": "Content",
     "Price / Value": "Price / Value",
+    "Marketing Signal": "Marketing Signal",
     "Emotional Expression": "Emotional Expression",
 }
 
@@ -76,7 +83,8 @@ ACTION_MAP = {
     "Gameplay": "Review core mechanics, controls, difficulty balance, character balance, and progression design.",
     "Content": "Review content updates, maps, heroes, skins, story content, replay value, and content roadmap communication.",
     "Price / Value": "Review pricing, monetization, refund reasons, battle pass value, and perceived content value.",
-    "Emotional Expression": "Review as general player reaction. Positive expressions may support marketing, while negative emotions may indicate dissatisfaction without a specific actionable issue.",
+    "Marketing Signal": "Use these reviews to identify player-recognized strengths, selling points, and positive phrases for store-page or campaign messaging.",
+    "Emotional Expression": "Review as general player reaction. These comments show player mood, but may not contain a specific actionable issue or marketing claim.",
     "General": "Review manually if the comment receives many votes or appears in negative feedback.",
 }
 
@@ -88,6 +96,7 @@ ISSUE_ORDER = [
     "Gameplay",
     "Content",
     "Price / Value",
+    "Marketing Signal",
     "Emotional Expression",
 ]
 
@@ -203,7 +212,7 @@ def assign_priority(sentiment: str, issue_category: str) -> str:
     ]:
         return "Medium"
 
-    if (not is_negative(sentiment)) and issue_category == "Emotional Expression":
+    if (not is_negative(sentiment)) and issue_category == "Marketing Signal":
         return "Marketing Insight"
 
     return "Low"
@@ -219,10 +228,14 @@ def sort_by_priority(df: pd.DataFrame) -> pd.DataFrame:
 
     sorted_df = df.copy()
     sorted_df["_priority_rank"] = sorted_df["priority"].map(PRIORITY_RANK).fillna(99)
+    sorted_df["_issue_rank"] = sorted_df["issue_category"].apply(
+        lambda x: ISSUE_ORDER.index(x) if x in ISSUE_ORDER else 99
+    )
+
     sorted_df = sorted_df.sort_values(
-        by=["_priority_rank", "issue_category", "issue_confidence"],
+        by=["_priority_rank", "_issue_rank", "issue_confidence"],
         ascending=[True, True, False],
-    ).drop(columns=["_priority_rank"])
+    ).drop(columns=["_priority_rank", "_issue_rank"])
 
     return sorted_df.reset_index(drop=True)
 
@@ -274,20 +287,20 @@ def analyze_texts(
 
 def get_top_issue_summary(df: pd.DataFrame, sentiment_type: str) -> str:
     if df.empty:
-        return "No reviews in this group."
+        return f"No {sentiment_type.lower()} reviews in this group."
 
     issue_counts = df["issue_category"].value_counts()
 
     if issue_counts.empty:
-        return "No issue category detected."
+        return f"No issue category was detected in {sentiment_type.lower()} reviews."
 
     top_issue = issue_counts.index[0]
     top_count = int(issue_counts.iloc[0])
     share = top_count / len(df) * 100
 
     return (
-        f"{sentiment_type} reviews are mainly associated with **{top_issue}** "
-        f"({top_count:,} reviews, {share:.1f}% of {sentiment_type.lower()} reviews)."
+        f"For **{sentiment_type.lower()} reviews**, the largest category is "
+        f"**{top_issue}** ({top_count:,} reviews, {share:.1f}%)."
     )
 
 
@@ -307,6 +320,7 @@ def generate_summary(df: pd.DataFrame) -> str:
 
     review_status = get_review_status(df)
     high_priority_count = int((df["priority"] == "High").sum())
+    marketing_count = int((df["priority"] == "Marketing Insight").sum())
 
     positive_issue_sentence = get_top_issue_summary(positive_df, "Positive")
     negative_issue_sentence = get_top_issue_summary(negative_df, "Negative")
@@ -316,21 +330,31 @@ def generate_summary(df: pd.DataFrame) -> str:
         high_issue_counts = high_df["issue_category"].value_counts()
         top_high_issue = high_issue_counts.index[0]
         high_sentence = (
-            f"There are **{high_priority_count:,} high-priority reviews**, "
-            f"mainly concentrated in **{top_high_issue}**. "
-            "These are the reviews that should be checked first because they are negative and linked to technical, access, server, or performance issues."
+            f"**{high_priority_count:,} reviews are high priority**, mainly in "
+            f"**{top_high_issue}**. These should be checked first because they are "
+            "negative and related to crash, access, server, or performance issues."
         )
     else:
         high_sentence = (
-            "No high-priority review cluster was detected in this batch. "
-            "The current batch is more useful for understanding general sentiment and lower-risk feedback themes."
+            "No high-priority cluster was detected in this filtered batch."
+        )
+
+    if marketing_count > 0:
+        marketing_sentence = (
+            f"**{marketing_count:,} reviews are marked as Marketing Insight**, "
+            "meaning they are positive and classified as Marketing Signal."
+        )
+    else:
+        marketing_sentence = (
+            "No clear Marketing Signal was detected in this filtered batch."
         )
 
     return (
         f"**Review status:** {review_status}. "
         f"This batch contains **{total:,} reviews**: **{positive_count:,} positive** "
         f"({positive_share:.1f}%) and **{negative_count:,} negative** ({negative_share:.1f}%). "
-        f"{positive_issue_sentence} {negative_issue_sentence} {high_sentence}"
+        f"{positive_issue_sentence} {negative_issue_sentence} "
+        f"{high_sentence} {marketing_sentence}"
     )
 
 
@@ -348,6 +372,7 @@ def render_kpi_cards(df: pd.DataFrame):
         positive_count = 0
 
     high_priority = int((df["priority"] == "High").sum()) if total else 0
+    marketing_insight = int((df["priority"] == "Marketing Insight").sum()) if total else 0
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Reviews", f"{total:,}")
@@ -410,6 +435,7 @@ def build_issue_statistics(df: pd.DataFrame) -> pd.DataFrame:
                 "Positive",
                 "Negative",
                 "High Priority",
+                "Marketing Insight",
             ]
         )
 
@@ -424,6 +450,7 @@ def build_issue_statistics(df: pd.DataFrame) -> pd.DataFrame:
         negative_count = int(issue_df["sentiment"].apply(is_negative).sum())
         positive_count = len(issue_df) - negative_count
         high_priority_count = int((issue_df["priority"] == "High").sum())
+        marketing_count = int((issue_df["priority"] == "Marketing Insight").sum())
 
         rows.append(
             {
@@ -432,6 +459,7 @@ def build_issue_statistics(df: pd.DataFrame) -> pd.DataFrame:
                 "Positive": positive_count,
                 "Negative": negative_count,
                 "High Priority": high_priority_count,
+                "Marketing Insight": marketing_count,
             }
         )
 
@@ -450,7 +478,7 @@ def render_issue_overview(df: pd.DataFrame):
 
     st.subheader("Issue Overview")
 
-    left_col, right_col = st.columns([2, 1.2])
+    left_col, right_col = st.columns([2, 1.25])
 
     with left_col:
         heatmap_data = (
@@ -476,10 +504,9 @@ def render_issue_overview(df: pd.DataFrame):
             fig.update_layout(
                 xaxis_title="Sentiment",
                 yaxis_title="Issue Category",
-                height=520,
+                height=540,
                 margin=dict(l=10, r=10, t=55, b=10),
             )
-
             st.plotly_chart(fig, use_container_width=True)
 
     with right_col:
@@ -529,14 +556,27 @@ def render_issue_overview(df: pd.DataFrame):
             )
         )
 
+        if "Marketing Insight" in stats_df.columns and stats_df["Marketing Insight"].sum() > 0:
+            fig.add_trace(
+                go.Bar(
+                    y=stats_df["Issue Category"],
+                    x=stats_df["Marketing Insight"],
+                    name="Marketing Insight",
+                    orientation="h",
+                    text=stats_df["Marketing Insight"],
+                    textposition="outside",
+                    hovertemplate="<b>%{y}</b><br>Marketing Insight: %{x}<extra></extra>",
+                )
+            )
+
         fig.update_layout(
             title="Issue Volume & Risk",
             barmode="group",
-            height=520,
+            height=540,
             xaxis_title="Number of Reviews",
             yaxis_title="",
             legend_title="",
-            margin=dict(l=10, r=35, t=55, b=10),
+            margin=dict(l=10, r=45, t=55, b=10),
         )
 
         fig.update_xaxes(showgrid=True)
@@ -824,7 +864,7 @@ with tab_csv:
 |---|
 | The game keeps crashing after the latest update. |
 | I cannot log in because phone verification does not work. |
-| Peak game, very fun with friends. |
+| Highly recommend this game if you enjoy story-driven RPGs. |
 
 Optional columns such as `app_name`, `review_score`, or `review_votes` can be included, but only `review_text` is required.
         """
@@ -835,7 +875,7 @@ Optional columns such as `app_name`, `review_score`, or `review_votes` can be in
             "review_text": [
                 "The game keeps crashing after the latest update.",
                 "I cannot log in because phone verification does not work.",
-                "Peak game, very fun with friends.",
+                "Highly recommend this game if you enjoy story-driven RPGs.",
             ]
         }
     ).to_csv(index=False).encode("utf-8-sig")
@@ -919,16 +959,15 @@ The final system uses two fine-tuned Hugging Face DistilBERT models:
 2. **Issue Category Classification**  
    Model: `ShirohaNaruse/CustomModel_steam_issue`  
    It predicts the developer-oriented issue category:
-   Bug / Crash, Account / Access, Multiplayer / Server, Performance, Gameplay, Content, Price / Value, or Emotional Expression.
+   Bug / Crash, Account / Access, Multiplayer / Server, Performance, Gameplay, Content, Price / Value, Marketing Signal, or Emotional Expression.
 
-### Latest experimental results
-The final experiment used a 100k-style working sample after duplicate removal.  
-The sentiment model and issue category model were both fine-tuned from `distilbert-base-uncased`.
+### Priority logic
+Priority is not predicted by a separate model. It is generated by code after sentiment and issue-category prediction.
 
-| Pipeline | Final Model | Training Samples | Testing Samples |
-|---|---:|---:|---:|
-| Sentiment Classification | Fine-tuned DistilBERT | 72,744 | 9,095 |
-| Issue Category Classification | Fine-tuned DistilBERT | Updated issue training set | Natural held-out issue test set |
+- Negative + Bug / Crash, Account / Access, Multiplayer / Server, or Performance → High
+- Negative + Gameplay, Content, or Price / Value → Medium
+- Positive + Marketing Signal → Marketing Insight
+- Other cases → Low
 
 ### Important limitation
 The issue category labels were generated through keyword-based weak labeling and training-set balancing. Therefore, the issue model should be interpreted as a developer-oriented triage tool rather than a perfect human-labeled classifier.
