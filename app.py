@@ -479,6 +479,7 @@ def render_issue_overview(df: pd.DataFrame):
                 height=520,
                 margin=dict(l=10, r=10, t=55, b=10),
             )
+
             st.plotly_chart(fig, use_container_width=True)
 
     with right_col:
@@ -539,19 +540,12 @@ def render_issue_overview(df: pd.DataFrame):
         )
 
         fig.update_xaxes(showgrid=True)
-        fig.update_yaxes(categoryorder="array", categoryarray=stats_df["Issue Category"].tolist())
+        fig.update_yaxes(
+            categoryorder="array",
+            categoryarray=stats_df["Issue Category"].tolist(),
+        )
 
         st.plotly_chart(fig, use_container_width=True)
-        
-    with right_col:
-        stats_df = build_issue_statistics(df)
-        st.markdown("#### Issue Totals")
-        st.dataframe(
-            stats_df,
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-        )
 
 
 def render_table_field_explanation():
