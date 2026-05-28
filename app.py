@@ -3,6 +3,7 @@ from typing import List
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
@@ -449,7 +450,7 @@ def render_issue_overview(df: pd.DataFrame):
 
     st.subheader("Issue Overview")
 
-    left_col, right_col = st.columns([2, 1])
+    left_col, right_col = st.columns([2, 1.2])
 
     with left_col:
         heatmap_data = (
@@ -476,9 +477,72 @@ def render_issue_overview(df: pd.DataFrame):
                 xaxis_title="Sentiment",
                 yaxis_title="Issue Category",
                 height=520,
+                margin=dict(l=10, r=10, t=55, b=10),
             )
             st.plotly_chart(fig, use_container_width=True)
 
+    with right_col:
+        stats_df = build_issue_statistics(df)
+
+        if stats_df.empty:
+            st.info("No issue statistics available.")
+            return
+
+        stats_df = stats_df.sort_values(by="Total", ascending=True)
+
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Bar(
+                y=stats_df["Issue Category"],
+                x=stats_df["Total"],
+                name="Total",
+                orientation="h",
+                text=stats_df["Total"],
+                textposition="outside",
+                hovertemplate="<b>%{y}</b><br>Total: %{x}<extra></extra>",
+            )
+        )
+
+        fig.add_trace(
+            go.Bar(
+                y=stats_df["Issue Category"],
+                x=stats_df["Negative"],
+                name="Negative",
+                orientation="h",
+                text=stats_df["Negative"],
+                textposition="outside",
+                hovertemplate="<b>%{y}</b><br>Negative: %{x}<extra></extra>",
+            )
+        )
+
+        fig.add_trace(
+            go.Bar(
+                y=stats_df["Issue Category"],
+                x=stats_df["High Priority"],
+                name="High Priority",
+                orientation="h",
+                text=stats_df["High Priority"],
+                textposition="outside",
+                hovertemplate="<b>%{y}</b><br>High Priority: %{x}<extra></extra>",
+            )
+        )
+
+        fig.update_layout(
+            title="Issue Volume & Risk",
+            barmode="group",
+            height=520,
+            xaxis_title="Number of Reviews",
+            yaxis_title="",
+            legend_title="",
+            margin=dict(l=10, r=35, t=55, b=10),
+        )
+
+        fig.update_xaxes(showgrid=True)
+        fig.update_yaxes(categoryorder="array", categoryarray=stats_df["Issue Category"].tolist())
+
+        st.plotly_chart(fig, use_container_width=True)
+        
     with right_col:
         stats_df = build_issue_statistics(df)
         st.markdown("#### Issue Totals")
