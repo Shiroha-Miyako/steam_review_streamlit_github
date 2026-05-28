@@ -91,6 +91,21 @@ ISSUE_ORDER = [
 ]
 
 PRIORITY_ORDER = ["High", "Medium", "Marketing Insight", "Low"]
+PRIORITY_RANK = {
+    "High": 0,
+    "Medium": 1,
+    "Marketing Insight": 2,
+    "Low": 3,
+}
+
+DISPLAY_COLUMNS = [
+    "review_text",
+    "sentiment",
+    "sentiment_confidence",
+    "issue_category",
+    "issue_confidence",
+    "priority",
+]
 
 
 # =========================
@@ -197,6 +212,27 @@ def get_suggested_action(issue_category: str) -> str:
     return ACTION_MAP.get(issue_category, ACTION_MAP["General"])
 
 
+def sort_by_priority(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    sorted_df = df.copy()
+    sorted_df["_priority_rank"] = sorted_df["priority"].map(PRIORITY_RANK).fillna(99)
+    sorted_df = sorted_df.sort_values(
+        by=["_priority_rank", "issue_category", "issue_confidence"],
+        ascending=[True, True, False],
+    ).drop(columns=["_priority_rank"])
+
+    return sorted_df.reset_index(drop=True)
+
+
+def prepare_display_table(df: pd.DataFrame) -> pd.DataFrame:
+    available_columns = [col for col in DISPLAY_COLUMNS if col in df.columns]
+    display_df = df[available_columns].copy()
+    display_df = sort_by_priority(display_df)
+    return display_df
+
+
 def analyze_texts(
     texts: List[str],
     sentiment_pipe,
@@ -235,51 +271,65 @@ def analyze_texts(
     return pd.DataFrame(rows)
 
 
+def get_top_issue_summary(df: pd.DataFrame, sentiment_type: str) -> str:
+    if df.empty:
+        return "No reviews in this group."
+
+    issue_counts = df["issue_category"].value_counts()
+
+    if issue_counts.empty:
+        return "No issue category detected."
+
+    top_issue = issue_counts.index[0]
+    top_count = int(issue_counts.iloc[0])
+    share = top_count / len(df) * 100
+
+    return (
+        f"{sentiment_type} reviews are mainly associated with **{top_issue}** "
+        f"({top_count:,} reviews, {share:.1f}% of {sentiment_type.lower()} reviews)."
+    )
+
+
 def generate_summary(df: pd.DataFrame) -> str:
     if df.empty:
         return "No reviews were analyzed."
 
     total = len(df)
+    negative_df = df[df["sentiment"].apply(is_negative)]
+    positive_df = df[~df["sentiment"].apply(is_negative)]
 
-    negative_count = int(df["sentiment"].apply(is_negative).sum())
+    positive_count = len(positive_df)
+    negative_count = len(negative_df)
+
+    positive_share = positive_count / total * 100
     negative_share = negative_count / total * 100
+
     review_status = get_review_status(df)
+    high_priority_count = int((df["priority"] == "High").sum())
 
-    high_priority = int((df["priority"] == "High").sum())
+    positive_issue_sentence = get_top_issue_summary(positive_df, "Positive")
+    negative_issue_sentence = get_top_issue_summary(negative_df, "Negative")
 
-    issue_counts = df["issue_category"].value_counts()
-    top_issue = issue_counts.index[0] if not issue_counts.empty else "N/A"
-    top_issue_share = issue_counts.iloc[0] / total * 100 if not issue_counts.empty else 0
-
-    high_issue_counts = df[df["priority"] == "High"]["issue_category"].value_counts()
-
-    if not high_issue_counts.empty:
+    if high_priority_count > 0:
+        high_df = df[df["priority"] == "High"]
+        high_issue_counts = high_df["issue_category"].value_counts()
         top_high_issue = high_issue_counts.index[0]
-        focus_sentence = (
-            f"Among high-priority reviews, the most frequent issue is {top_high_issue}. "
-            "This suggests that developers may need to review this area first."
+        high_sentence = (
+            f"There are **{high_priority_count:,} high-priority reviews**, "
+            f"mainly concentrated in **{top_high_issue}**. "
+            "These are the reviews that should be checked first because they are negative and linked to technical, access, server, or performance issues."
         )
     else:
-        focus_sentence = "No high-priority issue cluster was detected in this batch."
-
-    emotional_count = int(issue_counts.get("Emotional Expression", 0))
-
-    if emotional_count > 0:
-        emotional_sentence = (
-            f"The app also identified {emotional_count} emotional-expression reviews. "
-            "Positive expressions may support marketing, while negative expressions may show general dissatisfaction."
-        )
-    else:
-        emotional_sentence = (
-            "Emotional-expression reviews are limited in this batch, so the current analysis is mainly useful for specific issue triage."
+        high_sentence = (
+            "No high-priority review cluster was detected in this batch. "
+            "The current batch is more useful for understanding general sentiment and lower-risk feedback themes."
         )
 
     return (
-        f"Among {total:,} analyzed reviews, the recent review status is **{review_status}**, "
-        f"with {negative_share:.1f}% classified as negative. "
-        f"The most frequent issue category is {top_issue}, accounting for {top_issue_share:.1f}% of all analyzed reviews. "
-        f"The app identified {high_priority:,} high-priority reviews that may require developer attention. "
-        f"{focus_sentence} {emotional_sentence}"
+        f"**Review status:** {review_status}. "
+        f"This batch contains **{total:,} reviews**: **{positive_count:,} positive** "
+        f"({positive_share:.1f}%) and **{negative_count:,} negative** ({negative_share:.1f}%). "
+        f"{positive_issue_sentence} {negative_issue_sentence} {high_sentence}"
     )
 
 
@@ -288,16 +338,21 @@ def generate_summary(df: pd.DataFrame) -> str:
 # =========================
 def render_kpi_cards(df: pd.DataFrame):
     total = len(df)
-    negative_share = df["sentiment"].apply(is_negative).mean() * 100 if total else 0
-    positive_share = 100 - negative_share if total else 0
+
+    if total:
+        negative_count = int(df["sentiment"].apply(is_negative).sum())
+        positive_count = total - negative_count
+    else:
+        negative_count = 0
+        positive_count = 0
+
     high_priority = int((df["priority"] == "High").sum()) if total else 0
-    review_status = get_review_status(df)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Reviews", f"{total:,}")
-    c2.metric("Positive Share", f"{positive_share:.1f}%")
-    c3.metric("High Priority", f"{high_priority:,}")
-    c4.metric("Recent Review Status", review_status)
+    c2.metric("Positive Reviews", f"{positive_count:,}")
+    c3.metric("Negative Reviews", f"{negative_count:,}")
+    c4.metric("High Priority", f"{high_priority:,}")
 
 
 def render_interactive_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
@@ -306,22 +361,37 @@ def render_interactive_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame
 
     st.subheader("Interactive Review Explorer")
     st.write(
-        "Select an issue category to focus on related reviews. "
-        "The dashboard and detailed results will update automatically without fetching the reviews again."
+        "Use the filters below to focus on one issue category or one priority level. "
+        "The dashboard and detailed table update automatically without fetching reviews again."
     )
 
-    issue_options = ["All"] + [x for x in ISSUE_ORDER if x in set(df["issue_category"])]
+    filter_col1, filter_col2 = st.columns(2)
 
-    selected_issue = st.selectbox(
-        "Issue Category",
-        issue_options,
-        key=f"{key_prefix}_issue_filter",
-    )
+    with filter_col1:
+        issue_options = ["All"] + [x for x in ISSUE_ORDER if x in set(df["issue_category"])]
+        selected_issue = st.selectbox(
+            "Issue Category",
+            issue_options,
+            key=f"{key_prefix}_issue_filter",
+        )
+
+    with filter_col2:
+        priority_options = ["All"] + [x for x in PRIORITY_ORDER if x in set(df["priority"])]
+        selected_priority = st.selectbox(
+            "Priority",
+            priority_options,
+            key=f"{key_prefix}_priority_filter",
+        )
 
     filtered_df = df.copy()
 
     if selected_issue != "All":
         filtered_df = filtered_df[filtered_df["issue_category"] == selected_issue]
+
+    if selected_priority != "All":
+        filtered_df = filtered_df[filtered_df["priority"] == selected_priority]
+
+    filtered_df = sort_by_priority(filtered_df)
 
     st.caption(
         f"Showing {len(filtered_df):,} of {len(df):,} analyzed reviews after filtering."
@@ -330,87 +400,111 @@ def render_interactive_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame
     return filtered_df
 
 
-def render_charts(df: pd.DataFrame):
+def build_issue_statistics(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Issue Category",
+                "Total",
+                "Positive",
+                "Negative",
+                "High Priority",
+            ]
+        )
+
+    rows = []
+
+    for issue in ISSUE_ORDER:
+        issue_df = df[df["issue_category"] == issue]
+
+        if issue_df.empty:
+            continue
+
+        negative_count = int(issue_df["sentiment"].apply(is_negative).sum())
+        positive_count = len(issue_df) - negative_count
+        high_priority_count = int((issue_df["priority"] == "High").sum())
+
+        rows.append(
+            {
+                "Issue Category": issue,
+                "Total": len(issue_df),
+                "Positive": positive_count,
+                "Negative": negative_count,
+                "High Priority": high_priority_count,
+            }
+        )
+
+    stats_df = pd.DataFrame(rows)
+
+    if not stats_df.empty:
+        stats_df = stats_df.sort_values(by="Total", ascending=False).reset_index(drop=True)
+
+    return stats_df
+
+
+def render_issue_overview(df: pd.DataFrame):
     if df.empty:
         st.info("No data to visualize.")
         return
 
-    col1, col2 = st.columns(2)
+    st.subheader("Issue Overview")
 
-    with col1:
-        sentiment_counts = df["sentiment"].value_counts().reset_index()
-        sentiment_counts.columns = ["sentiment", "count"]
+    left_col, right_col = st.columns([2, 1])
 
-        fig = px.bar(
-            sentiment_counts,
-            x="sentiment",
-            y="count",
-            title="Sentiment Distribution",
-            text="count",
+    with left_col:
+        heatmap_data = (
+            df.groupby(["issue_category", "sentiment"])
+            .size()
+            .reset_index(name="count")
         )
-        fig.update_layout(xaxis_title="", yaxis_title="Number of Reviews")
-        st.plotly_chart(fig, use_container_width=True)
 
-    with col2:
-        priority_counts = (
-            df["priority"]
-            .value_counts()
-            .reindex(PRIORITY_ORDER)
-            .dropna()
-            .reset_index()
+        if not heatmap_data.empty:
+            pivot = (
+                heatmap_data
+                .pivot(index="issue_category", columns="sentiment", values="count")
+                .fillna(0)
+            )
+            pivot = pivot.reindex([x for x in ISSUE_ORDER if x in pivot.index])
+
+            fig = px.imshow(
+                pivot,
+                text_auto=True,
+                aspect="auto",
+                title="Issue Category × Sentiment",
+            )
+            fig.update_layout(
+                xaxis_title="Sentiment",
+                yaxis_title="Issue Category",
+                height=520,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    with right_col:
+        stats_df = build_issue_statistics(df)
+        st.markdown("#### Issue Totals")
+        st.dataframe(
+            stats_df,
+            use_container_width=True,
+            hide_index=True,
+            height=520,
         )
-        priority_counts.columns = ["priority", "count"]
 
-        fig = px.bar(
-            priority_counts,
-            x="priority",
-            y="count",
-            title="Priority Distribution",
-            text="count",
-        )
-        fig.update_layout(xaxis_title="", yaxis_title="Number of Reviews")
-        st.plotly_chart(fig, use_container_width=True)
 
-    issue_counts = (
-        df["issue_category"]
-        .value_counts()
-        .reindex(ISSUE_ORDER)
-        .dropna()
-        .reset_index()
+def render_table_field_explanation():
+    st.markdown(
+        """
+**Field explanation**
+
+| Field | Meaning |
+|---|---|
+| `review_text` | Original player review text. |
+| `sentiment` | Predicted review sentiment: positive/recommended or negative/not recommended. |
+| `sentiment_confidence` | Model confidence for the sentiment prediction. |
+| `issue_category` | Predicted developer-oriented issue category. |
+| `issue_confidence` | Model confidence for the issue-category prediction. |
+| `priority` | Rule-based priority generated from sentiment and issue category. |
+        """
     )
-    issue_counts.columns = ["issue_category", "count"]
-
-    fig = px.bar(
-        issue_counts,
-        x="issue_category",
-        y="count",
-        title="Issue Category Distribution",
-        text="count",
-    )
-    fig.update_layout(xaxis_title="", yaxis_title="Number of Reviews")
-    st.plotly_chart(fig, use_container_width=True)
-
-    heatmap_data = (
-        df.groupby(["issue_category", "sentiment"])
-        .size()
-        .reset_index(name="count")
-    )
-
-    if not heatmap_data.empty:
-        pivot = (
-            heatmap_data
-            .pivot(index="issue_category", columns="sentiment", values="count")
-            .fillna(0)
-        )
-        pivot = pivot.reindex([x for x in ISSUE_ORDER if x in pivot.index])
-
-        fig = px.imshow(
-            pivot,
-            text_auto=True,
-            aspect="auto",
-            title="Issue Category × Sentiment Heatmap",
-        )
-        st.plotly_chart(fig, use_container_width=True)
 
 
 def render_analysis_results(df: pd.DataFrame, key_prefix: str):
@@ -421,37 +515,32 @@ def render_analysis_results(df: pd.DataFrame, key_prefix: str):
     filtered_df = render_interactive_filter(df, key_prefix=key_prefix)
 
     if filtered_df.empty:
-        st.warning("No reviews match the selected issue category.")
+        st.warning("No reviews match the selected filters.")
         return
 
-    st.subheader("Filtered Dashboard")
-    render_charts(filtered_df)
+    render_issue_overview(filtered_df)
 
-    st.subheader("Filtered Detailed Results")
-    st.dataframe(filtered_df, use_container_width=True, height=420)
+    st.subheader("Filtered Review Table")
+    render_table_field_explanation()
 
-    filtered_csv = filtered_df.to_csv(index=False).encode("utf-8-sig")
+    display_df = prepare_display_table(filtered_df)
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        height=460,
+        hide_index=True,
+    )
+
+    csv_bytes = display_df.to_csv(index=False).encode("utf-8-sig")
 
     st.download_button(
-        label="Download filtered results as CSV",
-        data=filtered_csv,
-        file_name="filtered_analyzed_reviews.csv",
+        label="Download filtered table as CSV",
+        data=csv_bytes,
+        file_name="filtered_review_table.csv",
         mime="text/csv",
         key=f"{key_prefix}_download_filtered",
     )
-
-    with st.expander("Show all analyzed results"):
-        st.dataframe(df, use_container_width=True, height=360)
-
-        all_csv = df.to_csv(index=False).encode("utf-8-sig")
-
-        st.download_button(
-            label="Download all analyzed results as CSV",
-            data=all_csv,
-            file_name="all_analyzed_reviews.csv",
-            mime="text/csv",
-            key=f"{key_prefix}_download_all",
-        )
 
 
 # =========================
@@ -637,6 +726,8 @@ with tab_steam:
                         axis=1,
                     )
 
+                result_df = sort_by_priority(result_df)
+
                 st.session_state["steam_result_df"] = result_df
                 st.session_state["steam_app_id"] = app_id
 
@@ -651,7 +742,7 @@ with tab_steam:
         st.divider()
         st.caption(
             f"Showing stored analysis results for Steam App ID "
-            f"{st.session_state['steam_app_id']}. Changing the issue filter below will not fetch reviews again."
+            f"{st.session_state['steam_app_id']}. Changing filters below will not fetch reviews again."
         )
         render_analysis_results(
             st.session_state["steam_result_df"],
@@ -733,13 +824,7 @@ Optional columns such as `app_name`, `review_score`, or `review_votes` can be in
                             issue_pipe,
                         )
 
-                    extra_cols = [c for c in input_df.columns if c != "review_text"]
-
-                    if extra_cols:
-                        result_df = pd.concat(
-                            [result_df, input_df[extra_cols].reset_index(drop=True)],
-                            axis=1,
-                        )
+                    result_df = sort_by_priority(result_df)
 
                     st.session_state["csv_result_df"] = result_df
 
@@ -750,7 +835,7 @@ Optional columns such as `app_name`, `review_score`, or `review_votes` can be in
     if st.session_state["csv_result_df"] is not None:
         st.divider()
         st.caption(
-            "Showing stored CSV analysis results. Changing the issue filter below will not re-run the model."
+            "Showing stored CSV analysis results. Changing filters below will not re-run the model."
         )
         render_analysis_results(
             st.session_state["csv_result_df"],
@@ -779,21 +864,18 @@ The final system uses two fine-tuned Hugging Face DistilBERT models:
    Bug / Crash, Account / Access, Multiplayer / Server, Performance, Gameplay, Content, Price / Value, or Emotional Expression.
 
 ### Latest experimental results
-The final experiment used a large 100k-style working sample after duplicate removal.
+The final experiment used a 100k-style working sample after duplicate removal.  
+The sentiment model and issue category model were both fine-tuned from `distilbert-base-uncased`.
 
-| Pipeline | Final Model | Training Samples | Testing Samples | Test Accuracy |
-|---|---:|---:|---:|---:|
-| Sentiment Classification | Fine-tuned DistilBERT | 72,744 | 9,095 | 0.9034 |
-| Issue Category Classification | Fine-tuned DistilBERT | 52,570 | 6,581 | 0.9552 |
-
-### Why this version changed
-Earlier versions used TF-IDF + Logistic Regression for issue classification.  
-After retraining on the larger 100k-style dataset and updating the issue label system, the fine-tuned issue DistilBERT achieved stronger performance and was selected as the final issue category model.
-
-### Interactive analysis
-The app supports Steam App ID fetching, CSV upload, dashboard visualization, issue-category filtering, detailed review inspection, and downloadable analyzed results. The app stores analysis results, so changing the issue filter does not fetch reviews again.
+| Pipeline | Final Model | Training Samples | Testing Samples |
+|---|---:|---:|---:|
+| Sentiment Classification | Fine-tuned DistilBERT | 72,744 | 9,095 |
+| Issue Category Classification | Fine-tuned DistilBERT | Updated issue training set | Natural held-out issue test set |
 
 ### Important limitation
-The issue category labels were generated through keyword-based weak labeling. Therefore, the issue model should be interpreted as a developer-oriented triage tool rather than a perfect human-labeled classifier.
+The issue category labels were generated through keyword-based weak labeling and training-set balancing. Therefore, the issue model should be interpreted as a developer-oriented triage tool rather than a perfect human-labeled classifier.
+
+### App functions
+The app supports Steam App ID fetching, CSV upload, review dashboard, issue-priority filtering, detailed review inspection, and downloadable filtered results. The app stores analysis results, so changing filters does not fetch reviews again.
         """
     )
