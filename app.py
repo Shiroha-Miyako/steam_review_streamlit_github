@@ -15,7 +15,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipe
 SENTIMENT_MODEL_ID = "ShirohaNaruse/CustomModel_steam_sentiment"
 ISSUE_MODEL_ID = "ShirohaNaruse/CustomModel_steam_issue"
 
-APP_TITLE = "Steam Review Intelligence Assistant"
+APP_TITLE = "Steam Review Analyzer for Developer"
 FETCH_MAX_REVIEWS = 1000
 
 ISSUE_LABEL_MAP = {
@@ -727,7 +727,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("🎮 Steam Review Intelligence Assistant")
+st.title("🎮 Steam Review Analyzer for Developer")
 st.caption(
     "A developer-oriented review triage tool using two fine-tuned Hugging Face DistilBERT models: "
     "sentiment classification and issue category classification."
